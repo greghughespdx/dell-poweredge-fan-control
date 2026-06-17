@@ -12,21 +12,33 @@ temperatures**, which are the real heat source in a storage box on a hot day.
 
 ## Supported hardware
 
-- **Dell PowerEdge 12th/13th generation** (R620, R720, R730, R630, and similar)
-  that accept the Dell OEM IPMI raw fan command (`0x30 0x30 ...`) via a local
-  BMC at `/dev/ipmi0`.
+- **Tested on a Dell PowerEdge R730XD.** Expected to work on many Dell PowerEdge
+  12th/13th generation systems (R620/R720/R730/R630-class) that accept the
+  **undocumented** Dell OEM IPMI raw fan command (`0x30 0x30 ...`) via a local
+  BMC at `/dev/ipmi0`. This command is community-known, not an officially
+  supported Dell interface, and **some newer iDRAC firmware revisions reject it**
+  (reported on 14G with iDRAC 3.34+). Verify on your exact model and iDRAC
+  firmware before enabling.
 - Linux host with `ipmitool`. Drive-temperature support additionally needs
   `smartmontools` (`smartctl`) and `lsblk`.
+
+Two independent data paths: fan control and air/CPU temps go through **IPMI**
+(the BMC); drive temps come from **`smartctl`** over the storage interface, not
+the BMC. The only thing this program actuates is fan duty cycle, via IPMI.
 
 Other server brands (HP iLO, Supermicro, Lenovo) use different raw commands and
 are **not supported out of the box**. The vendor-specific bits are isolated in a
 clearly marked `HARDWARE ADAPTER` block at the top of the script - porting means
 replacing two functions and the sensor names. See [Adapting](#adapting-to-other-hardware).
 
-> **Safety:** this program takes **manual control** of your fans. A bad
-> configuration can run them too low and cook hardware. It has safety-temperature
-> overrides and a watchdog, but **you** are responsible for validating the curve
-> on your hardware before relying on it. Start with conservative thresholds.
+> **Safety:** this program takes **manual control** of your fans. While it runs,
+> the BMC's automatic fan control is **disabled**, and Dell does **not**
+> automatically take fans back if the process dies - they stay at the last duty
+> cycle this set. The systemd unit mitigates that (watchdog + `Restart=always`
+> for hangs/crashes, and `ExecStopPost` restores automatic mode on a clean stop);
+> to restore by hand: `ipmitool raw 0x30 0x30 0x01 0x01`. A bad configuration can
+> run fans too low and cook hardware. **You** are responsible for validating the
+> curve on your hardware before relying on it. Start with conservative thresholds.
 
 ## How it works
 
@@ -84,12 +96,17 @@ The `HARDWARE ADAPTER` block at the top of the script holds everything
 vendor-specific:
 
 - `fan_enable_manual()` / `fan_set_percent()` - the Dell OEM raw commands.
-  Replace with your platform's mechanism. **Ensure your platform falls back to
-  automatic fan control if this process dies** (Dell does).
+  Replace with your platform's mechanism, and provide an equivalent
+  **restore-to-automatic** command. The Dell restore is
+  `ipmitool raw 0x30 0x30 0x01 0x01` (wired into the unit's `ExecStopPost`).
 - `SENSOR_INLET` / `SENSOR_EXHAUST` / `SENSOR_CPU` - the sensor names as they
   appear in your `ipmitool sensor` output.
 
-The fan curve, drive sampling, and control logic are vendor-neutral.
+The fan curve and control logic are vendor-neutral. The drive-temperature module
+is portable across Linux + `smartmontools`, with one caveat: `discover_drive_devices()`
+uses `smartctl -d scsi` for all non-NVMe disks (correct for SAS/HBA topologies).
+Direct-attach SATA or USB/JBOD may need `-d ata` / `-d sat`; if a non-NVMe disk
+reports no temperature, check `smartctl --scan` and adjust `smart_type`.
 
 ## License
 

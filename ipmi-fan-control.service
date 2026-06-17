@@ -6,6 +6,11 @@ After=multi-user.target
 Type=simple
 # Adjust the path if you installed the script elsewhere.
 ExecStart=/usr/bin/python3 /opt/ipmi-fan-control/ipmi_fan_control.py
+# Restore the BMC's automatic fan control whenever the service stops. While the
+# controller runs, automatic mode is OFF; without this, a stop would leave fans
+# pinned at the last manual duty cycle. (Dell PowerEdge restore command; change
+# for other vendors. The leading '-' means a failure here won't block stop.)
+ExecStopPost=-/usr/bin/ipmitool raw 0x30 0x30 0x01 0x01
 # NotifyAccess=all is REQUIRED: the script pings the systemd watchdog via the
 # `systemd-notify` helper (a child process), which the default NotifyAccess=main
 # would reject -- causing a restart loop. Do not remove this.

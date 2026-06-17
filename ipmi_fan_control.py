@@ -7,17 +7,26 @@ hysteresis, smooth ramping, safety overrides, and a systemd watchdog.
 
 Supported hardware
 ------------------
-Dell PowerEdge 12th/13th generation (R620/R720/R730/R630 and similar) that
-accept the Dell OEM IPMI raw fan-control commands via a local BMC (/dev/ipmi0).
-Other vendors (HP iLO, Supermicro, Lenovo) use different raw commands and are
-NOT supported out of the box -- see the HARDWARE ADAPTER section below.
+Tested on a Dell PowerEdge R730XD. Expected to work on many Dell PowerEdge
+12th/13th generation systems (R620/R720/R730/R630-class) that accept the
+*undocumented* Dell OEM IPMI raw fan commands (0x30 0x30 ...) via a local BMC
+(/dev/ipmi0). These commands are community-known, not an officially supported
+Dell interface, and some newer iDRAC firmware revisions reject them. Verify on
+your exact model and iDRAC firmware before enabling. Other vendors (HP iLO,
+Supermicro, Lenovo) use different commands and are NOT supported out of the box
+-- see the HARDWARE ADAPTER section below.
 
 Safety
 ------
-This program takes MANUAL control of chassis fans. A misconfiguration can leave
-fans too low. It includes safety-temperature overrides and a systemd watchdog,
-but you are responsible for validating the curve on YOUR hardware in YOUR
-environment before relying on it. Test with conservative thresholds first.
+This program takes MANUAL control of chassis fans. While it runs, the BMC's
+automatic fan control is DISABLED. If the process stops without restoring
+automatic mode, fans remain pinned at the last duty cycle this program set --
+they do NOT automatically return to BMC control. The systemd unit mitigates this
+two ways: a watchdog + Restart=always restart a hung/crashed controller, and an
+ExecStopPost restores automatic fan control on a clean stop. To restore manually:
+`ipmitool raw 0x30 0x30 0x01 0x01`. A misconfiguration can leave fans too low;
+you are responsible for validating the curve on YOUR hardware in YOUR environment
+before relying on it. Test with conservative thresholds first.
 
 Tuning
 ------
@@ -37,13 +46,16 @@ from datetime import datetime
 # =============================================================================
 # HARDWARE ADAPTER -- Dell PowerEdge (edit this block for other vendors)
 # =============================================================================
-# `ipmitool` talks to the local BMC. On Dell PowerEdge 12G/13G the OEM raw
-# command 0x30 0x30 controls fan mode and duty cycle:
+# `ipmitool` talks to the local BMC. On Dell PowerEdge 12G/13G the *undocumented*
+# OEM raw command 0x30 0x30 controls fan mode and duty cycle:
 #   - 0x30 0x30 0x01 0x00            -> disable automatic fan control (manual)
 #   - 0x30 0x30 0x02 0xff 0x<pct>    -> set all fans to <pct> percent
-# To port to another vendor, replace fan_enable_manual() and fan_set_percent()
-# with that vendor's mechanism (and verify there is a safe fallback to automatic
-# control if this process dies).
+#   - 0x30 0x30 0x01 0x01            -> RESTORE automatic (BMC) fan control
+# IMPORTANT: while manual mode is active the BMC will NOT take fans back on its
+# own. The systemd unit restores automatic control via ExecStopPost on a clean
+# stop; to restore by hand run: ipmitool raw 0x30 0x30 0x01 0x01
+# To port to another vendor, replace fan_enable_manual()/fan_set_percent() with
+# that vendor's mechanism and provide an equivalent restore-to-automatic command.
 
 IPMI_CMD = ["ipmitool"]
 
@@ -206,8 +218,13 @@ def set_fan_speed(percent):
 
 
 # =============================================================================
-# Drive temperature sampling (smartctl; portable across Linux + smartmontools)
+# Drive temperature sampling (smartctl)
 # =============================================================================
+# NOTE on portability: discover_drive_devices() assigns smartctl type "scsi" to
+# every non-NVMe disk. That is correct for SAS / many HBA topologies (tested on a
+# TrueNAS SAS backplane), but direct-attach SATA often needs "-d ata" or "-d sat",
+# and USB/JBOD enclosures vary. If your non-NVMe disks report no temperature,
+# check `smartctl --scan` for the right "-d <type>" and adjust smart_type below.
 
 def stable_byid_path(kernel_path):
     prefixes = ("wwn-", "scsi-", "ata-", "nvme-eui.", "nvme-")
