@@ -1,0 +1,20 @@
+[Unit]
+Description=IPMI Fan Control (Dell PowerEdge)
+After=multi-user.target
+
+[Service]
+Type=simple
+# Adjust the path if you installed the script elsewhere.
+ExecStart=/usr/bin/python3 /opt/ipmi-fan-control/ipmi_fan_control.py
+# NotifyAccess=all is REQUIRED: the script pings the systemd watchdog via the
+# `systemd-notify` helper (a child process), which the default NotifyAccess=main
+# would reject -- causing a restart loop. Do not remove this.
+NotifyAccess=all
+Restart=always
+RestartSec=5
+# Watchdog: systemd restarts the controller if it stops pinging (e.g. hangs).
+# The script reads WATCHDOG_USEC from the environment systemd sets here.
+WatchdogSec=120
+
+[Install]
+WantedBy=multi-user.target
