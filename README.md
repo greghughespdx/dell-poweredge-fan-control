@@ -1,24 +1,26 @@
 # dell-ipmi-fan-control
 
-Smart IPMI fan control for **Dell PowerEdge** servers. Drives chassis fans from
-inlet and CPU temperatures with optional **drive-temperature awareness**, plus
-hysteresis, smooth ramping, safety overrides, and a systemd watchdog.
+Smart IPMI fan control for **Dell PowerEdge** servers (see generations supported, 
+below). Drives chassis fans from inlet and CPU temperatures with optional 
+**drive-temperature awareness**, plus hysteresis, smooth ramping, safety overrides, 
+and a systemd watchdog.
 
-It exists because the stock BMC fan policy on these servers tends to be either
-loud (aggressive default curve) or, with third-party PCIe cards installed, stuck
-at high RPM. This gives you a quiet, sensible curve while still protecting the
+**Why use it?** Because the stock BMC fan policy on these servers tends to be either
+loud (aggressive default curve) or, when third-party PCIe cards are installed, stuck
+at high RPM. This control gives you a quiet, sensible curve while still protecting the
 hardware - and unlike most fan-control scripts, it can factor in **disk
-temperatures**, which are the real heat source in a storage box on a hot day.
+temperatures**, which are a real heat source in a storage box on a hot day.
 
 ## Supported hardware
 
-- **Tested on a Dell PowerEdge R730XD.** Expected to work on many Dell PowerEdge
-  12th/13th generation systems (R620/R720/R730/R630-class) that accept the
+- **Built and tested on a Dell PowerEdge R730XD.** Expected to work on many Dell
+  PowerEdge 12th/13th generation systems (R620/R720/R730/R630-class) that accept the
   **undocumented** Dell OEM IPMI raw fan command (`0x30 0x30 ...`) via a local
-  BMC at `/dev/ipmi0`. This command is community-known, not an officially
+  BMC at `/dev/ipmi0`. This command is community-known, but is not an officially
   supported Dell interface, and **some newer iDRAC firmware revisions reject it**
   (reported on 14G with iDRAC 3.34+). Verify on your exact model and iDRAC
-  firmware before enabling.
+  firmware before enabling. If you find it works on other server models, please
+  drop a comment.
 - Linux host with `ipmitool`. Drive-temperature support additionally needs
   `smartmontools` (`smartctl`) and `lsblk`.
 
@@ -31,10 +33,10 @@ are **not supported out of the box**. The vendor-specific bits are isolated in a
 clearly marked `HARDWARE ADAPTER` block at the top of the script - porting means
 replacing two functions and the sensor names. See [Adapting](#adapting-to-other-hardware).
 
-> **Safety:** this program takes **manual control** of your fans. While it runs,
+> **IMPORTANT:** this program takes **manual control** of your fans. While it runs,
 > the BMC's automatic fan control is **disabled**, and Dell does **not**
-> automatically take fans back if the process dies - they stay at the last duty
-> cycle this set. The systemd unit mitigates that (watchdog + `Restart=always`
+> automatically take fans back if the process dies - they stay at the last-set
+> duty cycle. The systemd unit mitigates that (watchdog + `Restart=always`
 > for hangs/crashes, and `ExecStopPost` restores automatic mode on a clean stop);
 > to restore by hand: `ipmitool raw 0x30 0x30 0x01 0x01`. A bad configuration can
 > run fans too low and cook hardware. **You** are responsible for validating the
@@ -45,7 +47,7 @@ replacing two functions and the sensor names. See [Adapting](#adapting-to-other-
 Every 15 seconds it reads inlet + CPU temps via `ipmitool sensor`, computes a fan
 target from a piecewise-linear curve (with a CPU bump), and applies it with
 hysteresis and ramp-down limiting (no fan down-spikes). If any temperature
-crosses the safety threshold it jumps straight to the safety fan speed.
+crosses the safety threshold, it jumps straight to the safety fan speed.
 
 If drive-temperature support is enabled, every 120 seconds it samples disk temps
 via `smartctl` (without waking standby disks), classifies each device as HDD /
@@ -79,7 +81,7 @@ systemctl show ipmi-fan-control -p NRestarts -p ActiveState
 
 All tunables are constants near the top of `ipmi_fan_control.py`, grouped by
 section. The defaults are tuned for one specific server in one environment -
-**re-tune them for yours**:
+**re-tune them for your system!**:
 
 | Group | Keys |
 |-------|------|
